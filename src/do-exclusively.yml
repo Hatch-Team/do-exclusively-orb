@@ -12,35 +12,53 @@ commands:
       Run command exclusively.
       This depends on jq.
     parameters:
-      command:
-        description: |
-          Command executed exclusively.
-        type: string
       token:
         description: |
           The env var containing CircleCI API token that can read builds for the project (either a user or project API token will work).
           Pass this as a literal string such as `$CIRCLE_TOKEN`.
           Do not paste the actual token into your configuration.
         type: string
+      branch:
+        description: |
+          Branch to filter builds for, if present only builds for this branch are considered
+        type: string
+      jobs:
+        description: |
+          Delimited list of Workflow job names that should block this build i.e. "deploy-tests remote-test"
+        type: string
     steps:
     - run:
         name: Run command exclusively
         command: |
+
+          # reads $branch, $tag
           # sets $jq_prog
           make_jq_prog() {
               local jq_filters=""
 
+              if [[ $branch ]]; then
+                  jq_filters+=" and .branch == \"$branch\""
+              fi
+
+
+              # allow specifying the other jobs this should be blocked by
+              if [ ${#jobs[@]} -gt 0 ]; then
+                  jobs_as_json=$(printf '%s\n' "${jobs[@]}" | jq -R . | jq -sc .)
+                  jq_filters+=" and (.workflows.job_name |  in($jobs_as_json))"
+              fi
+              
+
               jq_prog=".[] | select(.build_num < $CIRCLE_BUILD_NUM and (.status | test(\"running|pending|queued\")) $jq_filters) | .build_num"
+              echo "Using JQ Prog: " + $jq_prog
           }
 
 
           set -e
           set -u
           set -o pipefail
-
+          branch="<< parameters.branch >>"
+          jobs=$(IFS=', ' read -r -a array \<<< "<< parameters.jobs >>")
           api_url="https://circleci.com/api/v1/project/$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME?circle-token=<< parameters.token >>&limit=100"
-
-          commit_message=$(git log -1 --pretty=%B)
           make_jq_prog
 
           echo "Checking for running builds..."
@@ -58,4 +76,3 @@ commands:
           done
 
           echo "Acquired lock"
-          << parameters.command >>

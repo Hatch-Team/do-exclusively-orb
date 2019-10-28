@@ -25,7 +25,7 @@ workflows:
           branches:
             ignore: /.*/
         orb-path: src/do-exclusively.yml
-        orb-ref: miyajan/do-exclusively@${CIRCLE_TAG}
+        orb-ref: Hatch-Team/do-exclusively@${CIRCLE_TAG}
         publish-token-variable: ${ORB_PUBLISHING_TOKEN}
         validate: true
         checkout: true
