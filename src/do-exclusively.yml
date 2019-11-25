@@ -26,6 +26,11 @@ commands:
         description: |
           Delimited list of Workflow job names that should block this build i.e. "deploy-tests remote-test"
         type: string
+      maxWait:
+        description: |
+          Maximum number of seconds to wait before failing build
+        type: integer
+        default: 600
     steps:
     - run:
         name: Run command exclusively
@@ -44,7 +49,7 @@ commands:
               # allow specifying the other jobs this should be blocked by
               if [ ${#jobs[@]} -gt 0 ]; then
                   jobs_as_json=$(printf '%s\n' "${jobs[@]}" | jq -R . | jq -sc .)
-                  jq_filters+=" and (.workflows.job_name |  in($jobs_as_json))"
+                  jq_filters+=" and ($jobs_as_json as \$blacklist | . as \$item | \$blacklist | all(. == \$item.workflows.job_name))"
               fi
               
 
@@ -70,6 +75,10 @@ commands:
                   echo "$builds"
               else
                   break
+              fi
+              if [[ "$SECONDS" -gt << parameters.maxWait >> ]]; then
+                 echo "Waited for $SECONDS seconds"
+                 exit 1;
               fi
               echo "Retrying in 5 seconds..."
               sleep 5
