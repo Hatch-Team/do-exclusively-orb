@@ -67,18 +67,19 @@ commands:
             set -u
             set -o pipefail
             branch="<< parameters.branch >>"
+            DEBUG=${debug-0}
             IFS=', ' read -r -a jobs \<<< "<< parameters.jobs >>"
             api_url="https://circleci.com/api/v1/project/$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME?circle-token=<< parameters.token >>&limit=100"
             make_jq_prog
 
             echo "Checking for running builds..."
-            if [[ $debug -gt 0 ]]; then
+            if [[ $DEBUG -gt 0 ]]; then
                 echo "JQ Program"
                 echo $jq_prog
             fi
             while true; do
                 curl -s -H "Accept: application/json" "$api_url" > output.json
-                if [[ $debug -gt 0 ]]; then
+                if [[ $DEBUG -gt 0 ]]; then
                   cat output.json
                 fi
                 builds=$(cat output.json | jq "$jq_prog")
