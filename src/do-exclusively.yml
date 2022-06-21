@@ -31,57 +31,69 @@ commands:
           Maximum number of seconds to wait before failing build
         type: integer
         default: 600
+      debug:
+        description: |
+          Output debug logging
+        type: integer
+        default: 0
     steps:
-    - run:
-        name: Run command exclusively
-        command: |
+      - run:
+          name: Run command exclusively
+          command: |
 
-          # reads $branch, $tag
-          # sets $jq_prog
-          make_jq_prog() {
-              local jq_filters=""
+            # reads $branch, $tag
+            # sets $jq_prog
+            make_jq_prog() {
+                local jq_filters=""
 
-              if [[ $branch ]]; then
-                  jq_filters+=" and .branch == \"$branch\""
-              fi
-
-
-              # allow specifying the other jobs this should be blocked by
-              if [ ${#jobs[@]} -gt 0 ]; then
-                  jobs_as_json=$(printf '%s\n' "${jobs[@]}" | jq -R . | jq -sc .)
-                  jq_filters+=" and ($jobs_as_json as \$blacklist | . as \$item | \$blacklist | all(. == \$item.workflows.job_name))"
-              fi
-              
-
-              jq_prog=".[] | select(.build_num < $CIRCLE_BUILD_NUM and (.status | test(\"running|pending|queued\")) $jq_filters) | .build_num"
-              echo "Using JQ Prog: " + $jq_prog
-          }
+                if [[ $branch ]]; then
+                    jq_filters+=" and .branch == \"$branch\""
+                fi
 
 
-          set -e
-          set -u
-          set -o pipefail
-          branch="<< parameters.branch >>"
-          IFS=', ' read -r -a jobs \<<< "<< parameters.jobs >>"
-          api_url="https://circleci.com/api/v1/project/$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME?circle-token=<< parameters.token >>&limit=100"
-          make_jq_prog
+                # allow specifying the other jobs this should be blocked by
+                if [ ${#jobs[@]} -gt 0 ]; then
+                    jobs_as_json=$(printf '%s\n' "${jobs[@]}" | jq -R . | jq -sc .)
+                    jq_filters+=" and ($jobs_as_json as \$blacklist | . as \$item | \$blacklist | all(. == \$item.workflows.job_name))"
+                fi
+                
 
-          echo "Checking for running builds..."
+                jq_prog=".[] | select(.build_num < $CIRCLE_BUILD_NUM and (.status | test(\"running|pending|queued\")) $jq_filters) | .build_num"
+                echo "Using JQ Prog: " + $jq_prog
+            }
 
-          while true; do
-              builds=$(curl -s -H "Accept: application/json" "$api_url" | jq "$jq_prog")
-              if [[ $builds ]]; then
-                  echo "Waiting on builds:"
-                  echo "$builds"
-              else
-                  break
-              fi
-              if [[ "$SECONDS" -gt << parameters.maxWait >> ]]; then
-                 echo "Waited for $SECONDS seconds"
-                 exit 1;
-              fi
-              echo "Retrying in 5 seconds..."
-              sleep 5
-          done
 
-          echo "Acquired lock"
+            set -e
+            set -u
+            set -o pipefail
+            branch="<< parameters.branch >>"
+            IFS=', ' read -r -a jobs \<<< "<< parameters.jobs >>"
+            api_url="https://circleci.com/api/v1/project/$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME?circle-token=<< parameters.token >>&limit=100"
+            make_jq_prog
+
+            echo "Checking for running builds..."
+            if [[ $debug -gt 0 ]]; then
+                echo "JQ Program"
+                echo $jq_prog
+            fi
+            while true; do
+                curl -s -H "Accept: application/json" "$api_url" > output.json
+                if [[ $debug -gt 0 ]]; then
+                  cat output.json
+                fi
+                builds=$(cat output.json | jq "$jq_prog")
+                if [[ $builds ]]; then
+                    echo "Waiting on builds:"
+                    echo "$builds"
+                else
+                    break
+                fi
+                if [[ "$SECONDS" -gt << parameters.maxWait >> ]]; then
+                   echo "Waited for $SECONDS seconds"
+                   exit 1;
+                fi
+                echo "Retrying in 5 seconds..."
+                sleep 5
+            done
+
+            echo "Acquired lock"
