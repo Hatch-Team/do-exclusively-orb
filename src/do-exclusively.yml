@@ -63,9 +63,15 @@ commands:
             }
 
 
+            err() {
+                echo "Error occurred:"
+                awk 'NR>L-4 && NR<L+4 { printf "%-5d%3s%s\n",NR,(NR==L?">>>":""),$0 }' L=$1 $0
+            }
+
             set -e
             set -u
             set -o pipefail
+            trap 'err  $LINENO' ERR
             branch="<< parameters.branch >>"
             DEBUG=${debug-0}
             IFS=', ' read -r -a jobs \<<< "<< parameters.jobs >>"
@@ -78,7 +84,12 @@ commands:
                 echo $jq_prog
             fi
             while true; do
-                curl -s -H "Accept: application/json" "$api_url" > output.json
+                STATUSCODE=$(curl --silent --output output.json  --write-out "%{http_code}"  -H "Accept: application/json" $api_url)
+                if test $STATUSCODE -ne 200; then
+                  echo "Calling $api_url resulted in status code $STATUSCODE"
+                  cat output.json
+                  exit 3
+                fi
                 if [[ $DEBUG -gt 0 ]]; then
                   cat output.json
                 fi
